@@ -5,6 +5,7 @@ import yt_dlp
 
 app = FastAPI()
 
+# Configuração de CORS para permitir que a Vercel acesse o Render
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,10 +14,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/search")
+async def search_youtube(q: str):
+    if not q:
+        raise HTTPException(status_code=400, detail="Termo de busca vazio.")
+    
+    # Configura o yt-dlp para buscar apenas os 5 primeiros resultados sem baixar
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'noplaylist': True,
+        'quiet': True,
+        'extract_flat': True, # Não baixa o vídeo, apenas extrai os metadados rápidos
+    }
+    
+    try:
+        # Usa o prefixo ytsearch5: para trazer 5 resultados do YouTube
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch5:{q}", download=False)
+            entries = info.get('entries', [])
+            
+            resultados = []
+            for entry in entries:
+                if entry:
+                    resultados.append({
+                        'id': entry.get('id'),
+                        'title': entry.get('title'),
+                        'author': entry.get('uploader', 'Canal Desconhecido')
+                    })
+            return resultados
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/download")
 async def download_audio(id: str):
     if not id:
-        raise HTTPException(status_code=400, detail="ID do vídeo é obrigatória.")
+        raise HTTPException(status_code=400, detail="ID da música obrigatória.")
     
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -28,14 +60,9 @@ async def download_audio(id: str):
     
     try:
         url = f"https://www.youtube.com/watch?v={id}"
-        
         def stream_audio():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                # Retorna os dados diretamente do processo de download do yt-dlp
                 ydl.download([url])
-                
         return StreamingResponse(stream_audio(), media_type="audio/mpeg")
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
